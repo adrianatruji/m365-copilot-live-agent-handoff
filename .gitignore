@@ -1,0 +1,7 @@
+node_modules/
+.env
+.msal-cache.json
+setup-output.json
+HandoffAgent/appPackage/manifest.json
+HandoffAgent/appPackage/*.zip
+*.log

@@ -1,0 +1,33 @@
+kind: AdaptiveDialog
+startBehavior: CancelOtherTopics
+beginDialog:
+  kind: OnEscalate
+  id: main
+  intent:
+    displayName: Escalate
+    includeInOnSelectIntent: false
+    triggerQueries:
+      - Talk to agent
+      - Talk to a person
+      - Talk to someone
+      - I need help from a person
+      - Connect me to a live agent
+      - I want to speak with a human
+      - Can I talk to a human
+
+  actions:
+    - kind: SendActivity
+      id: sendMessage_handoff
+      activity: Let me connect you with a member of the support team.
+
+    # The HandoffAgent listens for this event and hands the chat to a human.
+    # The value is passed to the live agent as context (here: what the user asked for).
+    - kind: SendActivity
+      id: sendEvent_handoff
+      activity:
+        kind: EventActivity
+        name: handoff.requested
+        value: =System.Activity.Text
+
+    - kind: EndConversation
+      id: endConversation_handoff

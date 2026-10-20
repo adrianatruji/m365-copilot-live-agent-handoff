@@ -1,0 +1,32 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.21/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.21",
+  "version": "1.0.0",
+  "id": "{{TEAMS_APP_ID}}",
+  "developer": {
+    "name": "Contoso (sample)",
+    "websiteUrl": "https://github.com/microsoft/CopilotStudioSamples",
+    "privacyUrl": "https://github.com/microsoft/CopilotStudioSamples",
+    "termsOfUseUrl": "https://github.com/microsoft/CopilotStudioSamples"
+  },
+  "icons": { "color": "color.png", "outline": "outline.png" },
+  "name": { "short": "Live Agent Handoff Demo", "full": "Live agent handoff demo for Microsoft 365 Copilot" },
+  "description": {
+    "short": "Copilot Studio agent with live agent handoff in Microsoft 365 Copilot.",
+    "full": "Sample custom engine agent that answers with a Copilot Studio agent and hands the conversation to a human agent when asked, delivering their replies in the same chat."
+  },
+  "accentColor": "#1F4E79",
+  "copilotAgents": {
+    "customEngineAgents": [ { "type": "bot", "id": "{{BOT_ID}}" } ]
+  },
+  "bots": [
+    {
+      "botId": "{{BOT_ID}}",
+      "scopes": [ "copilot", "personal" ],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": [ "identity", "messageTeamMembers" ],
+  "validDomains": []
+}
