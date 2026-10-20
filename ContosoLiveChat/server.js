@@ -100,6 +100,11 @@ app.post('/api/chat/send', async (req, res) => {
   }
 })
 
-app.listen(PORT, '127.0.0.1', () => {
+// Express 5 passes listen errors (e.g. EADDRINUSE) to this callback instead of throwing.
+app.listen(PORT, '127.0.0.1', (err) => {
+  if (err) {
+    console.error(`Could not start on port ${PORT}: ${err.message}`)
+    process.exit(1)
+  }
   console.log(`Contoso Live Chat running at http://localhost:${PORT} (local only)`)
 })

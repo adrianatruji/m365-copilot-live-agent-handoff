@@ -9,9 +9,9 @@ This sample shows how a Copilot Studio agent used in **Microsoft 365 Copilot** c
 
 ## Background
 
-A Copilot Studio agent published to Microsoft 365 Copilot can't receive messages from a live agent after the user's turn has ended. The [skill handoff sample](../skill-handoff/) and the [Genesys handoff sample](https://github.com/microsoft/Agents/tree/main/samples/dotnet/genesys-handoff) solve this for **Microsoft Teams** with proactive messages. Microsoft 365 Copilot behaves differently in two ways that break those patterns:
+A Copilot Studio agent published to Microsoft 365 Copilot can't receive messages from a live agent after the user's turn has ended. The [skill handoff sample](https://github.com/microsoft/CopilotStudioSamples/tree/main/contact-center/skill-handoff) and the [Genesys handoff sample](https://github.com/microsoft/Agents/tree/main/samples/dotnet/genesys-handoff) solve this for **Microsoft Teams** with proactive messages. Microsoft 365 Copilot behaves differently in two ways that break those patterns:
 
-- **Every message the user sends must get a reply.** During a handoff the agent has nothing to say until the human answers. If it stays silent, Microsoft 365 Copilot shows *"The agent may still be processing your request…"* and then locks the chat.
+- **Every message the user sends must get a reply.** During a handoff the agent has nothing to say until the human answers. If it stays silent, Microsoft 365 Copilot shows *"The agent may still be processing your request…"* and then locks the chat. The reply must also be sent as a **streamed** response: a plain `sendActivity` reply is accepted by the service but not shown, so the chat locks anyway.
 - **Slow answers time out.** Microsoft 365 Copilot expects a first response within 15 seconds and updates at least every 45 seconds. Generative answers from Copilot Studio can take longer.
 
 ## What This Sample Does
@@ -20,7 +20,7 @@ A small **custom engine agent** (built with the [Microsoft 365 Agents SDK](https
 
 - **Forwards normal questions** to your Copilot Studio agent through the [Copilot Studio client API](https://learn.microsoft.com/microsoft-copilot-studio/publication-integrate-web-or-native-app-m365-agents-sdk) and **streams** the answer back with progress updates, so slow answers don't time out.
 - **Starts a live chat** in the contact center when the Copilot Studio **Escalate** topic sends a `handoff.requested` event.
-- **Acknowledges every message immediately** during the handoff (*"✓ Sent to the support agent"*), so Microsoft 365 Copilot never locks the chat.
+- **Acknowledges every message immediately** during the handoff (*"✓ Sent to the support agent"*, as a streamed reply with an **Exit chat with agent** card), so Microsoft 365 Copilot never locks the chat.
 - **Pushes the human agent's replies** into the same Copilot chat with [proactive messaging](https://learn.microsoft.com/microsoft-365/agents-sdk/proactive-overview).
 - **Returns the user to the assistant** when they type *exit* (or press **Exit chat with agent**), or when no human replies within 5 minutes.
 
@@ -74,18 +74,19 @@ sequenceDiagram
 - **Microsoft 365 tenant** with Microsoft 365 Copilot and Copilot Studio, where you can [upload custom apps to Teams](https://learn.microsoft.com/microsoftteams/platform/concepts/build-and-test/prepare-your-o365-tenant#enable-custom-teams-apps-and-turn-on-custom-app-uploading).
 - **Azure subscription in the same tenant**, with rights to create a resource group and an app registration.
 - **Copilot Studio agent** that:
-  - uses the **classic (standard) orchestration**. Agents built on the new GitHub Copilot harness can't be called through the Copilot Studio client API.
+  - is a standard (classic) agent, created in the Copilot Studio portal or with `pac copilot init` (default authoring mode). Agents built on the new CLI-authored / GitHub Copilot harness can't be called through the Copilot Studio client API. Generative orchestration is fine; it was used to test this sample.
   - has authentication set to **Authenticate with Microsoft** (the default).
   - is **published**.
 - **Tools on your machine:**
-  - [Node.js 20+](https://nodejs.org)
+  - [Node.js 20.6+](https://nodejs.org) (for `--env-file`)
   - [Azure CLI](https://aka.ms/installazurecli)
   - [Dev Tunnels CLI](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started) (`winget install Microsoft.devtunnel`)
-  - PowerShell 7
+  - PowerShell 7 (`setup.ps1` doesn't run in Windows PowerShell 5.1)
+- **Free local ports 3978 and 5000.** If another copy of the sample (or anything else) is using them, stop it first: both servers exit with an error if their port is taken.
 
 ## Installation
 
-1. **Sign in to Azure and Dev Tunnels** with an account in your Microsoft 365 tenant:
+1. **Sign in to Azure and Dev Tunnels.** The Azure CLI account must be in your Microsoft 365 tenant. The Dev Tunnels account can be any account (the tunnel allows anonymous access):
 
     ```powershell
     az login
@@ -98,6 +99,9 @@ sequenceDiagram
 
     {: .note }
     > The built-in *Transfer conversation* node can't be used here: Copilot Studio only allows it on channels with an engagement hub (it fails with `TransferConversationNotSupported`). The sample uses an event instead.
+
+    {: .note }
+    > If you edit the agent locally (PAC CLI or the Copilot Studio VS Code extension) instead of in the code editor, keep the `mcs.metadata` header at the top of `topics/Escalate.mcs.yml` and replace only the rest of the file.
 
 1. **Run the setup script** from this folder:
 
@@ -124,19 +128,21 @@ sequenceDiagram
     # Terminal 3 – the custom engine agent
     cd HandoffAgent
     npm install
-    npm run login            # one-time device-code sign-in (see Known Limitations)
+    npm run login            # one-time device-code sign-in (see below)
     npm start
     ```
 
-1. **Upload the app.** In Teams, go to **Apps > Manage your apps > Upload an app > Upload a custom app** and pick `HandoffAgent/appPackage/handoff-demo-app.zip`. You don't need to publish it to the agent store: the agent appears for you in Microsoft 365 Copilot.
+    `npm run login` doesn't open a browser. It prints a code: open `https://login.microsoft.com/device`, enter the code, sign in with an account that can use your Copilot Studio agent, and accept the consent prompt for the app registration. If it fails with `network_error`, run it again.
+
+1. **Upload the app.** In Teams, go to **Store** (called **Apps** in some Teams versions) **> Manage your apps > Upload an app > Upload a custom app** and pick `HandoffAgent/appPackage/handoff-demo-app.zip`. You don't need to publish it to the agent store: the agent appears for you in Microsoft 365 Copilot. After adding it, **Open with Copilot** takes you straight to the agent.
 
 ## Usage
 
 1. Open **Microsoft 365 Copilot** (`https://m365.cloud.microsoft/chat`) and select **Live Agent Handoff Demo** in the agent list.
 2. Ask a normal question. You'll see progress (*"Looking into that…"*) and then the answer from your Copilot Studio agent.
 3. Type **"I want to talk to a person"**. The agent connects you to the support team.
-4. Send a message, e.g. *"My laptop won't boot"*. You'll get **✓ Sent to the support agent** straight away.
-5. Open **http://localhost:5000**. The conversation and your message appear in the agent desk. Type a reply and press **Send**.
+4. Send a message, e.g. *"My laptop won't boot"*. You'll get **✓ Sent to the support agent** straight away, with an **Exit chat with agent** button.
+5. Open **http://localhost:5000**. The conversation and your message appear in the agent desk (the newest conversation is at the top of the list; select it). Type a reply and press **Send**.
 6. The reply appears in your Microsoft 365 Copilot chat as **Contoso Support: …**.
 7. Type **exit** (or press **Exit chat with agent**) to go back to the assistant. If no one replies within 5 minutes, you're returned automatically.
 
@@ -163,9 +169,11 @@ This sample runs locally through a dev tunnel and keeps state in memory. Before 
 ## Known Limitations
 
 1. **One user identity (demo only):** the HandoffAgent calls Copilot Studio as the user who ran `npm run login`, whoever is chatting.
-2. **Proactive messages in Microsoft 365 Copilot:** the Microsoft 365 Copilot documentation describes follow-up messages and proactive messages in a new conversation. Delivering a live agent's reply into the **existing** chat minutes later works, but isn't explicitly documented. Validate it for your scenario, especially long gaps or a closed browser tab.
+2. **Proactive messages in Microsoft 365 Copilot:** the Microsoft 365 Copilot documentation describes follow-up messages and proactive messages in a new conversation. Delivering a live agent's reply into the **existing** chat minutes later works (tested), but isn't explicitly documented. Validate it for your scenario, especially long gaps or a closed browser tab.
 3. **Restarts:** after restarting the HandoffAgent, active handoffs are lost (state is in memory) and users start a new conversation.
 4. **The dev tunnel stops** when your machine sleeps. Run `devtunnel host` again.
+5. **No user name:** Microsoft 365 Copilot sends an empty display name, so the agent desk shows *Microsoft 365 Copilot user*. Look the user up by `from.aadObjectId` (e.g. with Microsoft Graph) if your contact center needs it.
+6. **First message after install:** in testing, the very first message sent right after adding the app once timed out. Send it again if that happens.
 
 ## Cleanup
 
@@ -173,4 +181,7 @@ This sample runs locally through a dev tunnel and keeps state in memory. Before 
 ./cleanup.ps1
 ```
 
-This deletes the resource group with the Azure Bot, the Entra app registration and the dev tunnel. Remove **Live Agent Handoff Demo** from Teams (**Apps > Manage your apps**) and restore your Escalate topic if needed.
+This deletes the resource group with the Azure Bot, the Entra app registration and the dev tunnel. Remove **Live Agent Handoff Demo** from Teams (**Store > Manage your apps**) and restore your Escalate topic if needed.
+
+{: .note }
+> `cleanup.ps1` deletes the **whole** resource group (default `rg-copilot-handoff-demo`). If you share it with other resources, or ran `setup.ps1` more than once, pass a dedicated `-ResourceGroup` to `setup.ps1`.

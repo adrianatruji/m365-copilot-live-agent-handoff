@@ -31,7 +31,7 @@ HandoffAgent/
 | Behavior | Where | Why |
 |---|---|---|
 | Streams answers (`context.streamingResponse`) with progress updates | `agent.js` → `answerWithCopilotStudio` | Copilot needs a first response within 15 s; the SDK adds keep-alives on slow answers |
-| Replies **✓ Sent to the support agent** to every message during the handoff | `agent.js` → `handleMessageDuringHandoff` | Copilot locks the chat if a prompt gets no reply |
+| Replies **✓ Sent to the support agent** (streamed, with an **Exit chat with agent** card) to every message during the handoff | `agent.js` → `handleMessageDuringHandoff` / `reply` | Copilot locks the chat if a prompt gets no reply, and doesn't show plain (non-streamed) replies or `suggestedActions` |
 | Pushes human replies with `proactive.sendActivity` | `agent.js` → `deliverAgentReply` | The live agent answers outside the user's turn |
 | Retries the Copilot Studio call only if nothing was received | `copilotStudio.js` → `withRetry` | Recovers from dropped connections without sending a message twice |
 | Passes card submissions (e.g. connector consent) to Copilot Studio | `copilotStudio.js` | Lets users approve connections in the chat |
