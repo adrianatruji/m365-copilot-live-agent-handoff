@@ -14,6 +14,7 @@
 .EXAMPLE
   ./setup.ps1 -EnvironmentId 00000000-0000-0000-0000-000000000000 -AgentSchemaName cr123_myAgent
 #>
+#Requires -Version 7.0
 param(
   [Parameter(Mandatory)] [string] $EnvironmentId,     # Copilot Studio > agent > Settings > Advanced > Metadata
   [Parameter(Mandatory)] [string] $AgentSchemaName,   # same page
@@ -44,7 +45,11 @@ Step "Creating dev tunnel '$Name'"
 devtunnel create $Name --allow-anonymous | Out-Null
 devtunnel port create $Name -p 3978 | Out-Null
 $tunnel = (devtunnel show $Name -j | ConvertFrom-Json).tunnel
-$tunnelUrl = $tunnel.ports[0].portUri.TrimEnd('/')
+# Newer devtunnel CLIs only return portUri while the tunnel is hosted; derive it from the tunnel id (<name>.<cluster>) otherwise.
+$tunnelUrl = if ($tunnel.ports[0].portUri) { $tunnel.ports[0].portUri.TrimEnd('/') } else {
+  $tunnelName, $cluster = $tunnel.tunnelId -split '\.', 2
+  "https://$tunnelName-3978.$cluster.devtunnels.ms"
+}
 Write-Host "Tunnel URL: $tunnelUrl"
 
 Step "Creating Entra app registration '$Name'"
@@ -102,5 +107,5 @@ Next steps (see README.md for details):
   1. Terminal 1:  devtunnel host $Name
   2. Terminal 2:  cd ContosoLiveChat; npm install; npm start      -> open http://localhost:5000
   3. Terminal 3:  cd HandoffAgent;   npm install; npm run login; npm start
-  4. In Teams: Apps > Manage your apps > Upload a custom app > HandoffAgent/appPackage/handoff-demo-app.zip
+  4. In Teams: Store (Apps) > Manage your apps > Upload an app > Upload a custom app > HandoffAgent/appPackage/handoff-demo-app.zip
 "@

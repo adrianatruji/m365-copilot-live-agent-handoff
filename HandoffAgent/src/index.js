@@ -38,4 +38,16 @@ app.post('/api/livechat/messages', express.raw({ type: 'application/json', limit
 
 app.get('/', (_req, res) => res.send('HandoffAgent is running.'))
 
-app.listen(config.port, () => console.log(`HandoffAgent listening on port ${config.port}`))
+// Return JSON errors (e.g. 413 for oversized webhook bodies) instead of HTML pages with stack traces.
+app.use((err, _req, res, _next) => {
+  res.status(err.status || 500).json({ error: err.status ? err.message : 'Internal server error' })
+})
+
+// Express 5 passes listen errors (e.g. EADDRINUSE) to this callback instead of throwing.
+app.listen(config.port, (err) => {
+  if (err) {
+    console.error(`Could not start on port ${config.port}: ${err.message}`)
+    process.exit(1)
+  }
+  console.log(`HandoffAgent listening on port ${config.port}`)
+})

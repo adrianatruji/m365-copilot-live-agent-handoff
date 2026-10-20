@@ -27,11 +27,33 @@ const TEXT = {
   empty: 'Sorry, I did not get an answer for that. Could you rephrase it?'
 }
 
-const withExitButton = (text) => ({
-  type: 'message',
-  text,
-  suggestedActions: { to: [], actions: [{ type: 'imBack', title: 'Exit chat with agent', value: 'Exit chat with agent' }] }
-})
+// Microsoft 365 Copilot does not render suggestedActions, so the exit button is an Adaptive Card.
+const exitCard = {
+  contentType: 'application/vnd.microsoft.card.adaptive',
+  content: {
+    type: 'AdaptiveCard',
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    version: '1.5',
+    body: [],
+    actions: [{ type: 'Action.Submit', title: 'Exit chat with agent', data: { action: 'exitHandoff' } }]
+  }
+}
+
+/**
+ * Replies to the user's turn. On streaming channels (Microsoft 365 Copilot) the reply must be sent
+ * as a streamed final message: a plain sendActivity is accepted by the service but not shown, and
+ * the chat times out ("The agent may still be processing your request").
+ */
+async function reply (context, text, { exitButton = false } = {}) {
+  const stream = context.streamingResponse
+  if (stream.isStreamingChannel) {
+    stream.queueTextChunk(text)
+    if (exitButton) stream.setAttachments([exitCard])
+    await stream.endStream()
+  } else {
+    await context.sendActivity({ type: 'message', text, attachments: exitButton ? [exitCard] : [] })
+  }
+}
 
 const storage = new MemoryStorage()
 const turnQueues = new Map() // keeps each chat's Copilot Studio turns in order
@@ -65,17 +87,17 @@ class HandoffAgent extends AgentApplication {
     if (EXIT_COMMAND.test(text) || value?.action === 'exitHandoff') {
       sessions.end(chatId)
       await liveChat.endChat(session.liveChatId, 'user left').catch(err => console.warn('endChat failed:', err.message))
-      await context.sendActivity(TEXT.exited)
+      await reply(context, TEXT.exited)
       return
     }
 
     try {
       await liveChat.forwardUserMessage(session.liveChatId, text)
-      await context.sendActivity(withExitButton(TEXT.forwarded))
+      await reply(context, TEXT.forwarded, { exitButton: true })
     } catch (err) {
       console.warn('Forwarding to live chat failed:', err.message)
       sessions.end(chatId)
-      await context.sendActivity(TEXT.forwardFailed)
+      await reply(context, TEXT.forwardFailed)
     }
   }
 
