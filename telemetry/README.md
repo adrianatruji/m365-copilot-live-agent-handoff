@@ -22,9 +22,8 @@ The base sample works without it. Skip this if you only want the demo.
 
 | Source | Sent to | What you can see |
 |---|---|---|
-| **HandoffAgent** | Application Insights (`customEvents`, `requests`, `dependencies`, `exceptions`) | Each step of the conversation: Copilot Studio response times, handoff started / ended (and why), user messages forwarded, live agent replies delivered (or failed), retries and errors. **No message text**: only ids, timings and outcomes. |
-| **Copilot Studio agent** | Same Application Insights ([agent-level telemetry](https://learn.microsoft.com/microsoft-copilot-studio/advanced-bot-framework-composer-capture-telemetry)) | Topics, nodes and generative answers for the same conversation. |
-| **Azure Bot** | Log Analytics workspace (diagnostic settings) | Request volume and latency between Microsoft 365 Copilot and the bot. |
+| **HandoffAgent** | Application Insights (`customEvents`, `requests`, `exceptions`, plus Agents SDK spans in `dependencies` and `traces`) | Each step of the conversation: Copilot Studio response times, handoff started / ended (and why), user messages forwarded, live agent replies delivered (or failed), retries and errors. `requests` shows every call from Microsoft 365 Copilot and the contact center webhook, with durations. **No message text**: only ids, timings and outcomes. |
+| **Copilot Studio agent** | Same Application Insights ([agent-level telemetry](https://learn.microsoft.com/microsoft-copilot-studio/advanced-bot-framework-composer-capture-telemetry)) | Topics, nodes and messages for the same conversation. |
 
 **How the sources are joined:** every HandoffAgent event carries `copilotConversationId` (the Microsoft 365 Copilot chat). Copilot Studio steps also carry `mcsConversationId`, the same id Copilot Studio logs as `conversationId`.
 
@@ -34,8 +33,8 @@ The base sample works without it. Skip this if you only want the demo.
 |---|---|---|
 | `UserMessageReceived` | Every user message | `mode` (assistant / handoff), `textLength` |
 | `CopilotStudioTurn` | Copilot Studio answered | `durationMs`, `firstActivityMs`, `handoffRequested`, `mcsConversationId` |
-| `CopilotStudioRetry` | Copilot Studio stream dropped before any reply | `attempt`, `error` |
-| `AssistantTurnCompleted` | Answer delivered to the user | `totalMs`, `outcome` (stream result or `error`) |
+| `CopilotStudioRetry` | Copilot Studio stream dropped before any reply | `stage` (startConversation / sendActivity), `attempt`, `error` |
+| `AssistantTurnCompleted` | Answer delivered to the user | `totalMs`, `outcome`: stream result (`success`, `error`, `userCanceled`, `alreadyEnded`) or `copilotStudioError` |
 | `HandoffStarted` / `HandoffFailed` | Live chat opened (or couldn't be) | `liveChatConversationId` |
 | `UserMessageForwarded` | User message sent to the live agent | `minutesSinceHandoff` |
 | `AgentReplyDelivered` | Live agent reply pushed into the chat | `result` (ok / failed), `minutesSinceHandoff` |
@@ -51,20 +50,18 @@ Run this after the base sample's [Installation](../README.md#installation) steps
     ./telemetry/enable-telemetry.ps1
     ```
 
-    It creates a Log Analytics workspace and an Application Insights resource in the demo resource group, sends the Azure Bot's logs there, and adds `APPLICATIONINSIGHTS_CONNECTION_STRING` to `HandoffAgent/.env`. It's safe to run more than once.
+    It creates a Log Analytics workspace and an Application Insights resource in the demo resource group and adds `APPLICATIONINSIGHTS_CONNECTION_STRING` to `HandoffAgent/.env`. It takes 2–3 minutes and is safe to run more than once.
 
 1. **Restart the HandoffAgent** (Ctrl+C, then `npm start`). You should see `Telemetry: sending to Application Insights`.
 
     {: .note }
-    > With telemetry on, the HandoffAgent takes about 8 seconds longer to start while it loads the Application Insights libraries.
+    > With telemetry on, the HandoffAgent takes about 5–8 seconds longer to start while it loads the Application Insights libraries. The **first** start after `npm install` can take a minute or two with no output (the new packages are loaded and scanned for the first time); wait for `HandoffAgent listening on port 3978`.
 
 1. **Connect Copilot Studio** to the same resource. In Copilot Studio, open your agent and go to **Settings > Advanced > Application Insights**:
     - Paste the **connection string**. The script prints it and copies it to your clipboard.
-    - Turn on **Enable logging** and **Node execution events**.
+    - Make sure **Enable logging** and **Node execution events** are on.
+    - Turn **off** **Log conversation details**. It's on by default and adds user names and message text to the logs; the timeline join doesn't need it.
     - **Save**, then **Publish** the agent.
-
-    {: .note }
-    > Leave **Log conversation details** off unless you need it: it adds user names and message text to the logs. The timeline join works without it.
 
 1. **Have a conversation** in Microsoft 365 Copilot that includes a handoff (see [Usage](../README.md#usage)).
 
@@ -83,13 +80,18 @@ The [`queries`](./queries/) folder has ready-made KQL you can paste into **Appli
 |---|---|
 | [`conversation-timeline.kql`](./queries/conversation-timeline.kql) | One conversation end to end (what `show-conversation.ps1` runs) |
 | [`handoff-summary.kql`](./queries/handoff-summary.kql) | Handoffs in the last 7 days: answered by a human, median minutes to first reply, how they ended |
-| [`copilot-studio-performance.kql`](./queries/copilot-studio-performance.kql) | Copilot Studio response times (median, p95, slower than 15 s), retries and failures |
+| [`copilot-studio-performance.kql`](./queries/copilot-studio-performance.kql) | Copilot Studio response times (median, p95, slower than 15 s), retries, Copilot Studio failures and delivery errors to Microsoft 365 Copilot |
 
 ## What You Can't See
 
 - **Microsoft 365 Copilot's own processing** (for example, why a reply wasn't shown) isn't exposed. Use the `AssistantTurnCompleted` outcome and Microsoft support.
+- **Microsoft 365 Copilot traffic in Azure Bot logs.** Microsoft 365 Copilot calls the HandoffAgent directly, so the Azure Bot resource's diagnostic logs don't record these conversations. Use the HandoffAgent's `requests` instead.
+- **What the orchestrator did with generative orchestration.** Copilot Studio logs topics and nodes when a topic runs (for example *Escalate*). Turns answered directly by generative orchestration only show `BotMessageReceived` and `BotMessageSend`.
 - **The contact center's side** (queue times, agent assignment). Use your contact center's own reporting; `liveChatConversationId` links the two.
+
+{: .note }
+> When the HandoffAgent runs outside Azure (for example on your machine), each start logs one `ENETUNREACH 169.254.169.254` exception: the Application Insights SDK checks whether it's running on an Azure VM. You can ignore it. The `traces` table also has one `activity.received` / `activity.sent` entry per activity the Agents SDK handles (ids and types only).
 
 ## Cleanup
 
-`cleanup.ps1` deletes the demo resource group, which includes the workspace and Application Insights. To turn telemetry off but keep the resources, remove `APPLICATIONINSIGHTS_CONNECTION_STRING` from `HandoffAgent/.env` and clear the connection string in Copilot Studio.
+`cleanup.ps1` deletes the demo resource group, which includes the workspace and Application Insights. Also clear the connection string in Copilot Studio (**Settings > Advanced > Application Insights**) and publish, so the agent stops sending telemetry to a deleted resource. To turn telemetry off but keep the resources, remove `APPLICATIONINSIGHTS_CONNECTION_STRING` from `HandoffAgent/.env` and clear the connection string in Copilot Studio.

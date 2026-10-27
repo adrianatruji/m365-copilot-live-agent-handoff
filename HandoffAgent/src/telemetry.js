@@ -12,7 +12,9 @@ const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING?.trim
 let client = null
 
 if (connectionString) {
-  // Must run before other modules load so outgoing HTTP calls are captured as dependencies.
+  // Loaded before other modules so incoming requests, the Agents SDK spans and http/https calls are
+  // captured. Calls made with fetch (Copilot Studio, Teams connector, live chat) aren't auto-collected;
+  // they show up as the Agents SDK's agents.* spans and in the custom events below.
   process.env.OTEL_SERVICE_NAME ??= 'handoff-agent'
   const appInsights = require('applicationinsights')
   appInsights.setup(connectionString)

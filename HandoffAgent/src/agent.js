@@ -139,7 +139,7 @@ class HandoffAgent extends AgentApplication {
       await context.sendActivity({ type: 'message', text: answer, attachments })
     }
     track('AssistantTurnCompleted',
-      { copilotConversationId: chatId, mcsConversationId: result.mcsConversationId, streamed: stream.isStreamingChannel, outcome: result.error ? 'error' : outcome },
+      { copilotConversationId: chatId, mcsConversationId: result.mcsConversationId, streamed: stream.isStreamingChannel, outcome: result.error ? 'copilotStudioError' : outcome },
       { totalMs: Date.now() - started })
   }
 
