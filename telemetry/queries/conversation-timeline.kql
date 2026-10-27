@@ -1,0 +1,32 @@
+// End-to-end timeline of one Microsoft 365 Copilot conversation.
+// Joins HandoffAgent events with the Copilot Studio agent's own events through the Copilot Studio
+// conversation id (HandoffAgent: mcsConversationId, Copilot Studio: conversationId).
+// Paste your conversation id below, or run telemetry/show-conversation.ps1.
+let copilotConversationId = '<COPILOT_CONVERSATION_ID>';
+let agentEvents = customEvents
+    | where tostring(customDimensions.copilotConversationId) == copilotConversationId;
+let copilotStudioIds = agentEvents
+    | extend id = tostring(customDimensions.mcsConversationId)
+    | where isnotempty(id)
+    | distinct id;
+let copilotStudioEvents = customEvents
+    | where tostring(customDimensions.conversationId) in (copilotStudioIds);
+union
+    (agentEvents | extend source = 'HandoffAgent'),
+    (copilotStudioEvents | extend source = 'Copilot Studio')
+| extend d = customDimensions, m = customMeasurements
+| extend details = case(
+    name == 'UserMessageReceived',    strcat('mode=', d.mode),
+    name == 'CopilotStudioTurn',      strcat('answered in ', round(todouble(m.durationMs) / 1000, 1), 's (first response ', round(todouble(m.firstActivityMs) / 1000, 1), 's), handoff=', d.handoffRequested),
+    name == 'CopilotStudioRetry',     strcat(d.stage, ' attempt ', m.attempt, ': ', d.error),
+    name == 'AssistantTurnCompleted', strcat('total ', round(todouble(m.totalMs) / 1000, 1), 's, ', d.outcome),
+    name == 'HandoffStarted',         strcat('live chat ', d.liveChatConversationId),
+    name == 'HandoffFailed',          tostring(d.error),
+    name == 'UserMessageForwarded',   strcat(round(todouble(m.minutesSinceHandoff), 1), ' min after handoff'),
+    name == 'AgentReplyDelivered',    strcat(d.result, ', ', round(todouble(m.minutesSinceHandoff), 1), ' min after handoff'),
+    name == 'HandoffEnded',           strcat(d.reason, ' after ', round(todouble(m.minutesInHandoff), 1), ' min'),
+    name startswith 'Topic',          tostring(d.TopicName),
+    name == 'GenerativeAnswers',      tostring(d.TopicName),
+    '')
+| project timestamp, source, step = name, details
+| order by timestamp asc

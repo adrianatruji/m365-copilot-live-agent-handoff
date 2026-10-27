@@ -1,0 +1,23 @@
+// Live agent handoffs in the last 7 days: how many, how fast a human answered, and how they ended.
+let since = ago(7d);
+let started = customEvents
+    | where timestamp > since and name == 'HandoffStarted'
+    | project liveChat = tostring(customDimensions.liveChatConversationId);
+let firstReply = customEvents
+    | where timestamp > since and name == 'AgentReplyDelivered' and tostring(customDimensions.result) == 'ok'
+    | summarize minutesToFirstReply = min(todouble(customMeasurements.minutesSinceHandoff)) by liveChat = tostring(customDimensions.liveChatConversationId);
+let ended = customEvents
+    | where timestamp > since and name == 'HandoffEnded'
+    | summarize arg_max(timestamp, customDimensions) by liveChat = tostring(customDimensions.liveChatConversationId)
+    | project liveChat, reason = tostring(customDimensions.reason);
+started
+| join kind=leftouter firstReply on liveChat
+| join kind=leftouter ended on liveChat
+| summarize
+    handoffs = count(),
+    answeredByHuman = countif(isnotnull(minutesToFirstReply)),
+    medianMinutesToFirstReply = round(percentile(minutesToFirstReply, 50), 1),
+    userLeft = countif(reason == 'userExit'),
+    noHumanReply = countif(reason == 'noAgentReply'),
+    contactCenterError = countif(reason == 'forwardFailed'),
+    stillOpen = countif(isempty(reason))

@@ -2,6 +2,7 @@
 //   POST /api/messages            Microsoft 365 Copilot -> agent (Bot Framework, JWT-validated by the SDK)
 //   POST /api/livechat/messages   Contact center -> agent (human replies, HMAC-signed webhook)
 
+require('./telemetry') // optional; loaded first so it can capture HTTP calls (see telemetry/README.md)
 const config = require('./config')
 const express = require('express')
 const { loadAuthConfigFromEnv } = require('@microsoft/agents-hosting')
