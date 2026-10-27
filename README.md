@@ -149,7 +149,7 @@ sequenceDiagram
 
 ## Option B: End-to-End Telemetry (optional)
 
-To see what happened in each conversation, run `./telemetry/enable-telemetry.ps1` after the installation. It connects the HandoffAgent, the Copilot Studio agent and the Azure Bot to one **Application Insights** resource. `./telemetry/show-conversation.ps1` then prints a single timeline: Copilot Studio topics and response times, handoff started and ended, live agent replies delivered. Message text isn't logged by the HandoffAgent.
+To see what happened in each conversation, run `./telemetry/enable-telemetry.ps1` after the installation. It connects the HandoffAgent and the Copilot Studio agent to one **Application Insights** resource. `./telemetry/show-conversation.ps1` then prints a single timeline: Copilot Studio topics and response times, handoff started and ended, live agent replies delivered. Message text isn't logged by the HandoffAgent.
 
 See [`telemetry/README.md`](./telemetry/README.md). It takes about 5 minutes, including one setting in Copilot Studio.
 

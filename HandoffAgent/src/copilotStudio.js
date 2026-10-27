@@ -19,7 +19,8 @@ const conversations = new Map() // M365 Copilot conversation id -> Copilot Studi
 const isStatus = (text) => typeof text === 'string' && text.trim().length > 0 && text.trim().length <= 60 && /(\.\.\.|…)$/.test(text.trim())
 
 // Retries only when the stream fails before anything arrives, so a message is never sent twice.
-async function withRetry (makeStream, onActivity) {
+// telemetryProps identify the conversation so retries appear in its timeline.
+async function withRetry (makeStream, onActivity, telemetryProps = {}) {
   for (let attempt = 1; ; attempt++) {
     let received = 0
     try {
@@ -27,7 +28,7 @@ async function withRetry (makeStream, onActivity) {
       return
     } catch (err) {
       if (received > 0 || attempt === MAX_ATTEMPTS) throw err
-      track('CopilotStudioRetry', { error: err.message }, { attempt })
+      track('CopilotStudioRetry', { ...telemetryProps, error: err.message }, { attempt })
       await new Promise(resolve => setTimeout(resolve, 500 * attempt))
     }
   }
@@ -47,7 +48,8 @@ async function sendToCopilotStudio (chatId, text, value, onProgress = () => {}) 
   let mcsConversationId = conversations.get(chatId)
   if (!mcsConversationId) {
     // Starting the conversation returns the agent's greeting; it is not shown to the user.
-    await withRetry(() => client.startConversationStreaming(true), (a) => { mcsConversationId ??= a.conversation?.id })
+    await withRetry(() => client.startConversationStreaming(true), (a) => { mcsConversationId ??= a.conversation?.id },
+      { copilotConversationId: chatId, stage: 'startConversation' })
     conversations.set(chatId, mcsConversationId)
   }
 
@@ -63,7 +65,7 @@ async function sendToCopilotStudio (chatId, text, value, onProgress = () => {}) 
     else if (a.type === 'event' && a.name === HANDOFF_EVENT) handoff = { context: a.value }
     else if (a.type === 'message' && (a.text || a.attachments?.length)) replies.push(a)
     else if (a.type === 'endOfConversation') conversations.delete(chatId)
-  })
+  }, { copilotConversationId: chatId, mcsConversationId, stage: 'sendActivity' })
 
   track('CopilotStudioTurn',
     { copilotConversationId: chatId, mcsConversationId, handoffRequested: !!handoff },

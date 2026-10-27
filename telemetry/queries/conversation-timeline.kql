@@ -18,7 +18,7 @@ union
 | extend details = case(
     name == 'UserMessageReceived',    strcat('mode=', d.mode),
     name == 'CopilotStudioTurn',      strcat('answered in ', round(todouble(m.durationMs) / 1000, 1), 's (first response ', round(todouble(m.firstActivityMs) / 1000, 1), 's), handoff=', d.handoffRequested),
-    name == 'CopilotStudioRetry',     strcat('attempt ', m.attempt, ': ', d.error),
+    name == 'CopilotStudioRetry',     strcat(d.stage, ' attempt ', m.attempt, ': ', d.error),
     name == 'AssistantTurnCompleted', strcat('total ', round(todouble(m.totalMs) / 1000, 1), 's, ', d.outcome),
     name == 'HandoffStarted',         strcat('live chat ', d.liveChatConversationId),
     name == 'HandoffFailed',          tostring(d.error),
