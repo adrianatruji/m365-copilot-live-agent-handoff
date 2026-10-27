@@ -14,6 +14,7 @@ HandoffAgent/
 │   ├── liveChat.js           # Contact center integration: replace for Genesys, ServiceNow, …
 │   ├── handoffSessions.js    # Which chats are with a human (in memory)
 │   ├── config.js             # Reads and validates .env
+│   ├── telemetry.js          # Optional Application Insights events (off unless configured, see ../telemetry)
 │   └── login.js              # npm run login
 ├── appPackage/               # Teams / Microsoft 365 Copilot app manifest + icons
 └── .env.sample

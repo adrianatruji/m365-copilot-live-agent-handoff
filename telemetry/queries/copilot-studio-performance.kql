@@ -1,0 +1,14 @@
+// Copilot Studio response times seen by the HandoffAgent in the last 7 days, plus retries and failures.
+// Turns slower than 15 s are the ones that need streaming to avoid a timeout in Microsoft 365 Copilot.
+let since = ago(7d);
+let retries = toscalar(customEvents | where timestamp > since and name == 'CopilotStudioRetry' | count);
+let failures = toscalar(customEvents | where timestamp > since and name == 'AssistantTurnCompleted' and tostring(customDimensions.outcome) == 'error' | count);
+customEvents
+| where timestamp > since and name == 'CopilotStudioTurn'
+| extend seconds = todouble(customMeasurements.durationMs) / 1000
+| summarize
+    turns = count(),
+    medianSeconds = round(percentile(seconds, 50), 1),
+    p95Seconds = round(percentile(seconds, 95), 1),
+    slowerThan15s = countif(seconds > 15)
+| extend retries = retries, failures = failures

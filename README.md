@@ -34,6 +34,7 @@ Your Copilot Studio agent keeps all its topics, knowledge and tools. The only ch
 | [`ContosoLiveChat/`](./ContosoLiveChat/) | A mock contact center with an agent desk at `http://localhost:5000`. **Replace it** with your real system (Genesys, ServiceNow, Salesforce…). |
 | [`copilot-studio/Escalate.yaml`](./copilot-studio/Escalate.yaml) | Escalate topic that sends the `handoff.requested` event. |
 | `setup.ps1` / `cleanup.ps1` | Create (and delete) the dev tunnel, Entra app, Azure Bot, config files and app package in one go. |
+| [`telemetry/`](./telemetry/) | **Optional (Option B):** end-to-end telemetry in Application Insights, with a setup script and ready-made queries. |
 
 ### How It Works
 
@@ -146,6 +147,12 @@ sequenceDiagram
 6. The reply appears in your Microsoft 365 Copilot chat as **Contoso Support: …**.
 7. Type **exit** (or press **Exit chat with agent**) to go back to the assistant. If no one replies within 5 minutes, you're returned automatically.
 
+## Option B: End-to-End Telemetry (optional)
+
+To see what happened in each conversation, run `./telemetry/enable-telemetry.ps1` after the installation. It connects the HandoffAgent, the Copilot Studio agent and the Azure Bot to one **Application Insights** resource. `./telemetry/show-conversation.ps1` then prints a single timeline: Copilot Studio topics and response times, handoff started and ended, live agent replies delivered. Message text isn't logged by the HandoffAgent.
+
+See [`telemetry/README.md`](./telemetry/README.md). It takes about 5 minutes, including one setting in Copilot Studio.
+
 ## Replacing ContosoLiveChat with Your Contact Center
 
 All contact center calls are in [`HandoffAgent/src/liveChat.js`](./HandoffAgent/src/liveChat.js):
@@ -181,7 +188,7 @@ This sample runs locally through a dev tunnel and keeps state in memory. Before 
 ./cleanup.ps1
 ```
 
-This deletes the resource group with the Azure Bot, the Entra app registration and the dev tunnel. Remove **Live Agent Handoff Demo** from Teams (**Store > Manage your apps**) and restore your Escalate topic if needed.
+This deletes the resource group with the Azure Bot (and, if you enabled Option B, the Application Insights and Log Analytics resources), the Entra app registration and the dev tunnel. Remove **Live Agent Handoff Demo** from Teams (**Store > Manage your apps**) and restore your Escalate topic if needed.
 
 {: .note }
 > `cleanup.ps1` deletes the **whole** resource group (default `rg-copilot-handoff-demo`). If you share it with other resources, or ran `setup.ps1` more than once, pass a dedicated `-ResourceGroup` to `setup.ps1`.

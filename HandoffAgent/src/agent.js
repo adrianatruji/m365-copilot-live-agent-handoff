@@ -13,6 +13,7 @@ const config = require('./config')
 const { sendToCopilotStudio } = require('./copilotStudio')
 const liveChat = require('./liveChat')
 const sessions = require('./handoffSessions')
+const { track, trackError, minutesSince } = require('./telemetry')
 
 const EXIT_COMMAND = /^(exit|cancel|stop|end chat|back to bot|exit chat with agent)$/i
 
@@ -76,16 +77,20 @@ class HandoffAgent extends AgentApplication {
     const chatId = await this.proactive.storeConversation(context)
     const text = (context.activity.text || '').trim()
     const value = context.activity.value
+    const inHandoff = !!sessions.get(chatId)
+    track('UserMessageReceived', { copilotConversationId: chatId, mode: inHandoff ? 'handoff' : 'assistant', cardSubmit: !!value }, { textLength: text.length })
 
-    if (sessions.get(chatId)) return this.handleMessageDuringHandoff(context, chatId, text, value)
+    if (inHandoff) return this.handleMessageDuringHandoff(context, chatId, text, value)
     return this.answerWithCopilotStudio(context, chatId, text, value)
   }
 
   async handleMessageDuringHandoff (context, chatId, text, value) {
     const session = sessions.get(chatId)
+    const ids = { copilotConversationId: chatId, liveChatConversationId: session.liveChatId }
 
     if (EXIT_COMMAND.test(text) || value?.action === 'exitHandoff') {
       sessions.end(chatId)
+      track('HandoffEnded', { ...ids, reason: 'userExit' }, { minutesInHandoff: minutesSince(session.startedAt) })
       await liveChat.endChat(session.liveChatId, 'user left').catch(err => console.warn('endChat failed:', err.message))
       await reply(context, TEXT.exited)
       return
@@ -93,15 +98,19 @@ class HandoffAgent extends AgentApplication {
 
     try {
       await liveChat.forwardUserMessage(session.liveChatId, text)
+      track('UserMessageForwarded', ids, { minutesSinceHandoff: minutesSince(session.startedAt) })
       await reply(context, TEXT.forwarded, { exitButton: true })
     } catch (err) {
       console.warn('Forwarding to live chat failed:', err.message)
+      trackError(err, { ...ids, stage: 'forwardUserMessage' })
+      track('HandoffEnded', { ...ids, reason: 'forwardFailed' }, { minutesInHandoff: minutesSince(session.startedAt) })
       sessions.end(chatId)
       await reply(context, TEXT.forwardFailed)
     }
   }
 
   async answerWithCopilotStudio (context, chatId, text, value) {
+    const started = Date.now()
     const stream = context.streamingResponse
     const progress = (status) => { try { stream.queueInformativeUpdate(status) } catch { /* stream ended */ } }
     if (stream.isStreamingChannel) progress('Looking into that...')
@@ -111,34 +120,42 @@ class HandoffAgent extends AgentApplication {
       result = await inOrder(chatId, () => sendToCopilotStudio(chatId, text, value, progress))
     } catch (err) {
       console.error('Copilot Studio call failed:', err.message)
+      trackError(err, { copilotConversationId: chatId, stage: 'copilotStudio' })
       result = { replies: [], handoff: null, error: true }
     }
 
     const parts = result.error ? [TEXT.error] : result.replies.map(r => r.text).filter(Boolean)
     const attachments = result.replies.flatMap(r => r.attachments || [])
-    if (result.handoff) parts.push(await this.startHandoff(context, chatId, result.handoff.context || text))
+    if (result.handoff) parts.push(await this.startHandoff(context, chatId, result.handoff.context || text, result.mcsConversationId))
     const answer = parts.join('\n\n') || (attachments.length ? 'To continue, please respond to the card below.' : TEXT.empty)
 
+    let outcome = 'sent'
     if (stream.isStreamingChannel) {
       // A streamed turn ends with one final message, so all replies are combined into it.
       stream.queueTextChunk(answer)
       if (attachments.length) stream.setAttachments(attachments)
-      await stream.endStream()
+      outcome = await stream.endStream()
     } else {
       await context.sendActivity({ type: 'message', text: answer, attachments })
     }
+    track('AssistantTurnCompleted',
+      { copilotConversationId: chatId, mcsConversationId: result.mcsConversationId, streamed: stream.isStreamingChannel, outcome: result.error ? 'error' : outcome },
+      { totalMs: Date.now() - started })
   }
 
-  async startHandoff (context, chatId, reason) {
+  async startHandoff (context, chatId, reason, mcsConversationId) {
     try {
       const userName = context.activity.from?.name || 'Microsoft 365 Copilot user'
       const liveChatId = await liveChat.startChat(userName, typeof reason === 'string' ? reason : JSON.stringify(reason))
       sessions.start(chatId, liveChatId)
       sessions.armTimeout(chatId, config.handoffTimeoutMinutes, (id) => this.onHumanTimeout(id))
       console.log(`Handoff started: chat ${chatId} -> live chat ${liveChatId}`)
+      track('HandoffStarted', { copilotConversationId: chatId, mcsConversationId, liveChatConversationId: liveChatId })
       return TEXT.handoffStarted
     } catch (err) {
       console.error('Could not start live chat:', err.message)
+      trackError(err, { copilotConversationId: chatId, mcsConversationId, stage: 'startHandoff' })
+      track('HandoffFailed', { copilotConversationId: chatId, mcsConversationId, error: err.message })
       return TEXT.handoffUnavailable
     }
   }
@@ -147,7 +164,16 @@ class HandoffAgent extends AgentApplication {
   async deliverAgentReply (liveChatId, sender, message) {
     const found = sessions.findByLiveChatId(liveChatId)
     if (!found) return false
-    await this.proactive.sendActivity(this.adapter, found.chatId, { type: 'message', text: `**${sender}:** ${message}` })
+    const ids = { copilotConversationId: found.chatId, liveChatConversationId: liveChatId }
+    const minutes = { minutesSinceHandoff: minutesSince(found.session.startedAt) }
+    try {
+      await this.proactive.sendActivity(this.adapter, found.chatId, { type: 'message', text: `**${sender}:** ${message}` })
+    } catch (err) {
+      track('AgentReplyDelivered', { ...ids, result: 'failed', error: err.message }, minutes)
+      trackError(err, { ...ids, stage: 'proactiveDelivery' })
+      throw err
+    }
+    track('AgentReplyDelivered', { ...ids, result: 'ok' }, { ...minutes, textLength: message.length })
     sessions.armTimeout(found.chatId, config.handoffTimeoutMinutes, (id) => this.onHumanTimeout(id))
     return true
   }
@@ -155,6 +181,7 @@ class HandoffAgent extends AgentApplication {
   async onHumanTimeout (chatId) {
     const session = sessions.end(chatId)
     if (!session) return
+    track('HandoffEnded', { copilotConversationId: chatId, liveChatConversationId: session.liveChatId, reason: 'noAgentReply' }, { minutesInHandoff: minutesSince(session.startedAt) })
     await liveChat.endChat(session.liveChatId, 'no agent reply').catch(err => console.warn('endChat failed:', err.message))
     await this.proactive.sendActivity(this.adapter, chatId, { type: 'message', text: TEXT.timedOut(config.handoffTimeoutMinutes) })
       .catch(err => console.error('Timeout notice failed:', err.message))
